@@ -1,0 +1,65 @@
+#!/bin/sh
+
+# XXX: workaround for not installed binaries
+export PATH="$PATH:."
+
+:<<'DOCS'
+	DerStandard live ticker -- extractor
+	Extracts headines, text and embedded content from a derStandard.at
+	Liveticker and outputs it as tab seperated fields.
+	Give it an article ID (2000xxxxxxxxx) as argv[1]. Only displays
+	editorial content (no user's comments).
+
+	requries: curl, jq, websocat (https://github.com/vi/websocat)
+
+	TODO: 
+	 * detect if live (/jetzt/api/ .hmrcs?)
+	   NOTE: .M[0].M == "updateReportMetaDataWithReadonly"
+		 -> .M[0].A[0].rcs -> 0=live, 1=nachlese
+
+	Copyright (C) 2019 Tobias Girstmair; GNU GPL v3
+DOCS
+
+curl="curl -s -L -AGoogleBot/2.1"
+ticker_id=${1}
+backlog=${2:-9999}
+test -z "$ticker_id" && {
+	echo "Usage: $0 TICKER-ID [BACKLOG]" >&2
+	echo "try:	$0 2000103942403" >&2
+	exit 1
+}
+
+# trim ticker to only contain ID (if URL supplied):
+ticker_id=${ticker_id#*/livebericht/}
+ticker_id=${ticker_id%%[-/]*}
+
+mkurl() { # params: 1=protocol 2=endpoint 3=ticker_id (if any) 4=token (if any)
+	echo "${1}://live.derstandard.at/jetzt/signalr/hub/${2}
+		?transport=webSockets&clientProtocol=1.5&lbid=${3}
+		&v=1.0.7082.29332&connectionToken=${4}
+		&connectionData=%5B%7B%22name%22%3A%22reporthub%22%7D%5D
+		&tid=2" | tr -d ' \t\n'
+}
+
+# load old items; oldest first:
+test "$backlog" -gt 0 &&
+$curl -s "https://derstandard.at/jetzt/api/redcontent?id=${ticker_id}&ps=$backlog" |
+    jq -r '.rcs | reverse | .[] |
+	["addRedContentItem", .id, .ctd, .hl, .cm, .td.pq.hl, .td.pq.cm, .td.epu, .td.mu, .td.ec],
+	["updateVotes", .id, .vp, .vn] | @tsv'
+
+token=$($curl -s $(mkurl "https" "negotiate") | jq -r '.ConnectionToken | @uri')
+# send after first response from websocket (hacky):
+mkdir -p logs # XXX: temporary: save livetickers for later analysis
+(sleep 1; $curl -sf `mkurl "https" "start" "$ticker_id" "$token"`>/dev/null) &
+websocat $(mkurl "wss" "connect" "$ticker_id" "$token") |
+    tee "logs/$ticker_id-`date +%s`" |
+    jq --unbuffered -r '.M[0] | .M as $type |
+	if $type == "addRedContentItem" or $type == "updateRedContentItem" then 
+		.A[0] | [$type, .RedContentId, .CreateDate, .Headline, .Text, .PostingQuote.headline,
+			.PostingQuote.text, .ExternalProviderUri, .MediaUrl, .EmbedCode]
+	elif $type == "updateVotes" then
+		.A[0] | .[] | [$type, .id, .pvc, .nvc]
+	else 
+		[] 
+	end | @tsv'

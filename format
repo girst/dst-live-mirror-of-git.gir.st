@@ -1,0 +1,106 @@
+#!/usr/bin/awk -f
+
+#	DerStandard live ticker command line viewer
+#	Pipe the output of 'ticker' into it.
+#	Set -vimg=1 to enable inline images.
+#	Command line arguments:
+#	 * -vimg=1	enable inline images
+#	 * -vnoembed=1	only show title and body text
+#	 * -vwdiff=1	highlight changes in updates
+#
+#	requries: fold, [curl, viu (https://github.com/atanunq/viu)], [wdiff]
+#
+#	Copyright (C) 2019 Tobias Girstmair; GNU GPL v3
+
+$1 ~ /RedContentItem/ {
+	# $1=type(new/update), $2=posting-id, $3=createdate $4=headline,
+	# $5=body, $6=comment-title, $7=comment-body, $8=ExternalProviderUri,
+	# $9=MediaUrl, $10=EmbedCode
+	active_post = $2;
+	gsub(/\\r/, "");    # some posts have dos-lineendings
+	gsub(/\\n*$/, "");  # trim newlines at the very end
+	gsub(/\\n/, "\n");  # unescape lineendings (no other escapes)
+
+	time = substr($3, 12, 5);
+
+	print "\n---\n";                    # seperator
+	printf (faint time " " reset);      # time
+	if (wdiff && $1 ~ "update") {
+		if ($4) tprint(bold $4);    # title; TODO: diff it
+		diff(diff_archive[$2], $5); # body diff
+	} else {
+		if ($4) tprint(bold $4);    # title
+		if ($5) tprint($5);         # body text
+	}
+	diff_archive[$2] = $5;
+
+	if (noembed) next;
+	# Attachments:
+	if ($6 || $7) { # user comment
+		tprint(italic "\n" join2($6,": ",$7));
+	} else if (!$8 && $9) { # image
+		if (img) # display inline using unicode half-blocks
+			system ("curl -s " img_dst_at $9 " | viu -w" w);
+		else # just print a link
+			print img_dst_at $9;
+	} else if ($8 ~ /va.derstandard.at/) { # video
+		if (match($10, /src="[^"]*"/, url)) {
+			url[0] = substr(url[0], 6, length(url[0])-6);
+			sub(/^\/\//, "https://", url[0]);
+			tprint(url[0]);
+		}
+	} else if ($8 ~ /twitter.com/) {
+		gsub(/<[^<]*>/, "", $10);    #strip tags (naive html2text)
+		gsub(/&amp;/, "&", $10);     #unescape html entities
+		gsub(/&quot;/, "\"", $10); gsub(/&#39;/, "'", $10); # -"-
+		gsub(/&lt;/, "<", $10);    gsub(/&gt;/, ">", $10);   # -"-
+		gsub(/&mdash;.*$/, "", $10); #strip author (very greedy)
+		gsub(/[⃿-⯿𐀀-􏿽]/, "", $10);   #kill emoji (2100-2BFF,10000-10FFFD)
+		tprint("\n" italic $10);
+	} else if ($8) { # other embeds (mostly facebook?)
+		split($8, url, "?");  # remove tracking-query-string
+		tprint(url[0]);
+	}
+}
+$1 == "updateVotes" && $2 == active_post {
+	# $1=type(new/update), $2=posting-id, $3=upvotes, $4=downvotes
+	if (!$3 && !$4) next; # don't print -0/+0
+	printf ($4?red:faint)   "-" $4 reset " / ";
+	printf ($3?green:faint) "+" $3 reset "\r";
+}
+BEGIN {
+	FS="\t" # input is tab-delimetered
+	ENVIRON["PATH"] = ENVIRON["PATH"] ":." # XXX: fallback to local viu
+	w = "60"; # print width
+
+	# some useful constants:
+	bold    = "\033[1m";
+	faint   = "\033[2m";
+	italic  = "\033[3m";
+	reverse = "\033[7m";
+	reset   = "\033[0m";
+	red     = "\033[91m";
+	green   = "\033[92m";
+	img_dst_at = "https://images.derstandard.at/t/LB109";
+	# diff highlighing:
+	dels = "\033[0;9;91m"
+	dele = "\033[0;2m"
+	inss = "\033[0;3;92m"
+	inse = "\033[0;2m"
+}
+function tprint(text) {
+        foldcom = "fold -sw " w;
+	if ($1=="updateRedContentItem") printf faint;
+	print text reset | foldcom;
+	close (foldcom);
+}
+function diff(old, new) {
+	print old > "/tmp/diff1"; close("/tmp/diff1"); # XXX: not threadsafe
+	print new > "/tmp/diff2"; close("/tmp/diff2");
+	printf faint;
+	system ("wdiff -w '"dels"' -x '"dele"' -y '"inss"' -z '"inse"' /tmp/diff1 /tmp/diff2 | fold -sw " w);
+	printf reset;
+}
+function join2(a, sep, b) {
+	return a (a&&b? sep : "") b;
+}
