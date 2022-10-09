@@ -4,7 +4,7 @@ https://gir.st/dst-live.htm
 
 ## Usage
 
-    ./ticker <dst.at-URL> [backlog-#] | ./format [img=1] [noembed=1] [wdiff=1]
+    ./dst-live [--noembed] [--noimg] [--nodiff] <dst.at-URL> [backlog-#]
 
 Supply a `derstandard.at/jetzt/livebericht/2000xxxxxxxxx/...` url (or just the
 2000xxxxxxxxx ID) to `ticker`. By default, the whole available backlog will be
@@ -12,13 +12,11 @@ immediately downloaded; you can limit backlog to any number of items by
 supplying an integer as the second argument (caveat: the API will still return
 all items marked as important (yellow bar in the website) on top of the number
 of requested items).
-Supply a truthy value for `img` to `format` to display images in-line using
-Unicode half-blocks, or supply a truthy value to `noembed` to disable
-inline-tweets and selected user comments. The default is to show textual
-content inline, and embedded media as a URL. To enable word wise diffing of
-updates, supply wdiff with a truthy value.
-
-*Example*: `./ticker 2000103942403 0 | ./format`
+If `viu` is available (and `--noimg` isn't supplied), images will be displayed
+in-line using Unicode half-blocks. Tweets will be inlined unless `--noembed` is
+provided. Otherwise, the URL of the embedded content is printed below the posts.
+Word wise diffing (needs wdiff) of updates can be disabled by supplying
+`--nodiff`.
 
 Please be aware that this project is not endorsed by or affiliated with
 derStandard.at and may or may not be in compliance with their terms of

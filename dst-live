@@ -1,0 +1,21 @@
+#!/bin/sh
+
+# TODO: getopt(1)
+
+do_img=0
+do_diff=0
+no_embed=0
+
+command -v viu >/dev/null && do_img=1
+command -v wdiff >/dev/null && do_diff=1
+
+for arg in "$@"
+do	case "$arg" in
+	--noembed)	shift; no_embed=1;;
+	--noimg)	shift; do_img=0;;
+	--nodiff)	shift; do_diff=0;;
+	*)		break;;
+	esac
+done
+
+./ticker "$@" | ./format img=$do_img noembed=$no_embed wdiff=$do_diff
