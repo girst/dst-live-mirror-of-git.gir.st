@@ -40,7 +40,7 @@ $1 ~ /RedContentItem/ {
 		tprint(italic "\n" join2($6,": ",$7));
 	} else if (!$8 && $9) { # image
 		if (img) # display inline using unicode half-blocks
-			system ("curl -s '\''" img_dst_at $9 "'\'' | viu -w" w);
+			system ("curl -s '" img_dst_at $9 "' | viu -w" w);
 		else # just print a link
 			print img_dst_at $9;
 	} else if ($8 ~ /va.derstandard.at/) { # video
